@@ -25,6 +25,7 @@
  *  FDA FOR ANY CLINICAL USE.
  *
  *  HISTORY
+ *    2023-2023  Added bmp related read funtions Nilton L Kamiji (nilton@nips.ac.jp)
  *    2006-2015  Written by Greg Hood (ghood@psc.edu)
  */
 
@@ -37,19 +38,46 @@
 #include <jpeglib.h>
 #include <stdarg.h>
 #include <limits.h>
+#include <math.h>
+#include <stdint.h>
 
 #include "imio.h"
 
-#define N_EXTENSIONS	12
+#define N_EXTENSIONS	14 // change from 12 to 14 to add bmp files [Nilton]
 static char *extensions[N_EXTENSIONS] = { ".tif", ".tiff", ".TIF", ".TIFF",
 					  ".pgm", ".PGM", ".ppm", ".PPM",
-					  ".jpg", ".jpeg", ".JPG", ".JPEG"};
+					  ".jpg", ".jpeg", ".JPG", ".JPEG",
+					  ".bmp", ".BMP"}; // add .bmp and .BMP [Nilton]
 static int extension = 0;
 
 #define N_BITMAP_EXTENSIONS	2
-static char *bitmapExtensions[N_BITMAP_EXTENSIONS] = { ".pbm", ".pbm.gz" };
+static char *bitmapExtensions[N_BITMAP_EXTENSIONS] = { ".pbm", ".pbm.gz"};
 static int bitmapExtension = 0;
-
+// define BMP file header structures [Nilton]
+#define BMP_FILE_TYPE      0x4D42  // "BM" in little endian
+#define BMP_FILE_HEADER_SIZE   14  // BMP file header size
+#define BMP_INFO_HEADER_SIZE   40  // BMP info header size
+#define BMP_DEFAULT_HEADER_SIZE (BMP_FILE_HEADER_SIZE + BMP_INFO_HEADER_SIZE)
+typedef struct BMPFILEHEADER {
+  uint16_t bfType;     // BMP file type, usualy "BM"
+  uint32_t bfSize;     // BMP file size (bytes)
+  uint32_t bfReserved; // Reserved
+  uint32_t bfOffset;   // Offset to Data
+} BMPFILEHEADER;
+typedef struct BMPINFOHEADER {
+  uint32_t biSize;           // Size of header fixed to 40
+  int32_t  biWidth;          // Image Width
+  int32_t  biHeight;         // Image Height
+  uint16_t biPlanes;         // Number of image planes 1
+  uint16_t biBitCount;       // Number of bits per pixel
+  uint32_t biCompression;    // Image compression method
+  uint32_t biImageSize;      // Image Size; Can be zero when compressed
+  int32_t  biPixPerMeterX;   // Resolution in X direction in Pixels per meter (3780 indicates 96 dpi)
+  int32_t  biPixPerMeterY;   // Resolution in Y direction in Pixels per meter (3780 indicates 96 dpi)
+  uint32_t biColorUsed;      // Number of colors used from pallete
+  uint32_t biColorImportant; // Number of important colors
+} BMPINFOHEADER;
+// define BMP file header structures [Nilton]
 int ReadTiffImageSize (const char *filename, int *width, int *height,
 		       char *error);
 int ReadPgmImageSize (const char *filename, int *width, int *height,
@@ -58,6 +86,8 @@ int ReadPpmImageSize (const char *filename, int *width, int *height,
 		      char *error);
 int ReadJpgImageSize (const char *filename, int *width, int *height,
 		      char *error);
+int ReadBmpImageSize (const char *filename, int *width, int *height,
+		      char *error); // add ReadBmpImageSize [Nilton]
 int ReadTiffImage (char *filename, unsigned char **buffer,
 		   int *width, int *height,
 		   char *error);
@@ -67,6 +97,8 @@ int ReadPgmImage (char *filename, unsigned char **buffer,
 int ReadJpgImage (char *filename, unsigned char **buffer,
 		  int *width, int *height,
 		  char *error);
+int ReadBmpImage (char *filename, unsigned char **buffer,
+		  int *width, int *height, char *error); // add ReadBmpImage [Nilton]
 int ReadHeader (FILE *f, char *tc, uint32 *w, uint32 *h, int *m);
 
 int ReadPbmBitmapSize (const char *filename, int *width, int *height,
@@ -106,6 +138,8 @@ ReadImageSize (char *filename,
   else if (len > 4 && strcasecmp(&filename[len-4], ".jpg") == 0 ||
 	   len > 5 && strcasecmp(&filename[len-5], ".jpeg") == 0)
     return(ReadJpgImageSize(filename, width, height, error));
+  else if (len > 4 && strcasecmp(&filename[len-4], ".bmp") == 0)
+    return(ReadBmpImageSize(filename, width, height, error)); // Add ReadBmpImageSize [Nilton]
   else
     {
       j = extension;
@@ -142,6 +176,11 @@ ReadImageSize (char *filename,
 	    case 10:
 	    case 11:
 	      if (!ReadJpgImageSize(fn, width, height, error))
+		return(0);
+	      break;
+	    case 12:
+	    case 13:
+	      if (!ReadBmpImageSize(fn, width, height, error)) // Add ReadBmpImageSize [Nilton]
 		return(0);
 	      break;
 	    }
@@ -264,6 +303,106 @@ ReadJpgImageSize (const char *filename, int *width, int *height, char *error)
   return(1);
 }
 
+// Add ReadBmpImageSize [Nilton]
+int ReadBmpImageSize (const char *filename, int *width, int *height, char *error)
+{
+  struct BMPFILEHEADER file;
+  struct BMPINFOHEADER info;
+  FILE *f;
+  
+  f = fopen(filename, "rb");
+  if (f == NULL)
+    {
+      sprintf(error, "Could not open file %s for reading\n",
+		  filename);
+      return(0);
+    }
+
+    if (fread(&file.bfType, sizeof(file.bfType), 1, f) != 1 ||
+    file.bfType != BMP_FILE_TYPE)
+    {
+      sprintf(error, "Image file %s not bmp file.bfType.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfSize, sizeof(file.bfSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfSize.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfReserved, sizeof(file.bfReserved), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfReserved.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfOffset, sizeof(file.bfOffset), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfOffset.\n", filename);
+      return(0);
+    }
+
+  if (fread(&info.biSize, sizeof(info.biSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biSize.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biWidth, sizeof(info.biWidth), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biWidth.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biHeight, sizeof(info.biHeight), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biHeight.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPlanes, sizeof(info.biPlanes), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPlanes.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biBitCount, sizeof(info.biBitCount), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biBitCount.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biCompression, sizeof(info.biCompression), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biCompression.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biImageSize, sizeof(info.biImageSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biImageSize.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPixPerMeterX, sizeof(info.biPixPerMeterX), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPixPerMeterX.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPixPerMeterY, sizeof(info.biPixPerMeterY), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPixPerMeterY.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biColorUsed, sizeof(info.biColorUsed), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biColorUsed.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biColorImportant, sizeof(info.biColorImportant), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biColorImportant.\n", filename);
+      return(0);
+    }
+
+  *width = info.biWidth;
+  *height = info.biHeight;
+  fclose(f);
+  return(1);
+}
+// Add ReadBmpImageSize [Nilton]
+
 int
 ReadImage (char *filename, unsigned char **pixels,
 	   int *width, int *height,
@@ -305,6 +444,11 @@ ReadImage (char *filename, unsigned char **pixels,
       if (!ReadJpgImage(filename, &buffer, &iw, &ih, error))
 	return(0);
     }
+  else if (len > 4 && strcasecmp(&filename[len-4], ".bmp") == 0)
+    {
+      if (!ReadBmpImage(filename, &buffer, &iw, &ih, error)) // Add ReadBmpImage [Nilton]
+	return(0);
+    }
   else
     {
       j = extension;
@@ -338,6 +482,11 @@ ReadImage (char *filename, unsigned char **pixels,
 	    case 10:
 	    case 11:
 	      if (!ReadJpgImage(fn, &buffer, &iw, &ih, error))
+		return(0);
+	      break;
+	    case 12:
+	    case 13:
+	      if (!ReadBmpImage(fn, &buffer, &iw, &ih, error)) // Add ReadBmpImage [Nilton]
 		return(0);
 	      break;
 	    }
@@ -646,6 +795,159 @@ ReadJpgImage (char *filename, unsigned char **buffer,
   *height =  ih;
   return(1);
 }
+
+// Add ReadBmpImage [Nilton]
+int
+ReadBmpImage (char *filename, unsigned char **buffer,
+	      int *width, int *height, char *error)
+{
+  FILE *f;
+  BMPFILEHEADER file;
+  BMPINFOHEADER info;
+  int rowsize;
+  unsigned char *b;
+  
+  f = fopen(filename, "rb");
+  if (f == NULL)
+    {
+      sprintf(error, "Could not open file %s for reading\n",
+		  filename);
+      return(0);
+    }
+  
+  if (fread(&file.bfType, sizeof(file.bfType), 1, f) != 1 ||
+    file.bfType != BMP_FILE_TYPE)
+    {
+      sprintf(error, "Image file %s not bmp file.bfType.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfSize, sizeof(file.bfSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfSize.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfReserved, sizeof(file.bfReserved), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfReserved.\n", filename);
+      return(0);
+    }
+  if (fread(&file.bfOffset, sizeof(file.bfOffset), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp file.bfOffset.\n", filename);
+      return(0);
+    }
+
+  if (fread(&info.biSize, sizeof(info.biSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biSize.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biWidth, sizeof(info.biWidth), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biWidth.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biHeight, sizeof(info.biHeight), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biHeight.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPlanes, sizeof(info.biPlanes), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPlanes.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biBitCount, sizeof(info.biBitCount), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biBitCount.\n", filename);
+      return(0);
+    }
+  if (info.biBitCount != 8)
+    {
+      sprintf(error, "Unsupported pixel size (%d) for file %s. Convert to grayscale image\n",
+	      info.biBitCount, filename);
+      return(0);
+    }
+  if (fread(&info.biCompression, sizeof(info.biCompression), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biCompression.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biImageSize, sizeof(info.biImageSize), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biImageSize.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPixPerMeterX, sizeof(info.biPixPerMeterX), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPixPerMeterX.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biPixPerMeterY, sizeof(info.biPixPerMeterY), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biPixPerMeterY.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biColorUsed, sizeof(info.biColorUsed), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biColorUsed.\n", filename);
+      return(0);
+    }
+  if (fread(&info.biColorImportant, sizeof(info.biColorImportant), 1, f) != 1)
+    {
+      sprintf(error, "Image file %s not bmp info.biColorImportant.\n", filename);
+      return(0);
+    }
+  /*
+  if (file.bfOffset != (BMP_DEFAULT_HEADER_SIZE + info.biColorImportant * 4) ||
+      info.biHeight <= 0)
+    {
+      printf("\n Offset = %d\n", file.bfOffset);
+      printf("Color Important = %d\n", info.biColorImportant);
+      printf("Compression + %d\n", info.biCompression);
+      sprintf(error, "Image file %s not bmp Offset error.\n", filename);
+      return(0);
+    }
+  */
+  *width = info.biWidth;
+  *height = info.biHeight;
+  rowsize = (int)(ceil((info.biBitCount*(*width)/32)*4));
+  
+  if ((b = (unsigned char *) malloc((*width) * (*height))) == NULL)
+    {
+      sprintf(error, "Could not allocate enough memory for image in file %s\n", filename);
+      return(0);
+    }
+  //printf("Offset: %d\n", file.bfOffset);
+  if (fseek(f, file.bfOffset, SEEK_SET) != 0)
+    {
+      sprintf(error, "Could not reach image data in file %s\n", filename);
+      return(0);
+    }
+  //printf("width: %d, height: %d, rowsize: %d\n", *width, *height, rowsize);
+  for (int i=*height; i>0; i--)
+    {
+      if (fread(b + (i-1)*(*width), 1, (*width), f) != (*width))
+	{
+	  sprintf(error, "Image file %s apparently truncated.\n",
+		  filename);
+	  return(0);
+	}
+      if (fseek(f, rowsize-(*width), SEEK_CUR) != 0)
+	{
+	  sprintf(error, "Could not reach image data in file %s, row %d\n",
+		  filename, i);
+	  return(0);
+	}
+    }
+  
+  fclose(f);
+
+  *buffer = b;
+  return(1);
+}
+// Add ReadBmpImage [Nilton]
+
 
 int
 WriteImage (char *filename, unsigned char *pixels,
