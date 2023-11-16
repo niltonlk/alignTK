@@ -72,7 +72,7 @@ main (int argc, char **argv)
 	    exit(1);
 	  }
 	inputName[nInputs] = (char *) malloc(strlen(argv[i]) + 1);
-	strcpy(inputName[nInputs], argv[i]);
+	strcpy(inputName[nInputs++], argv[i]);
       }
     else if (strcmp(argv[i], "-output") == 0)
       {

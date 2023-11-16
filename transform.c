@@ -84,6 +84,8 @@ main (int argc, char **argv)
   double width, height;
   double scale;
   double xScale, yScale;
+  char imageListName[PATH_MAX];
+  char imageName[PATH_MAX];
   char inputName[PATH_MAX];
   char maskName[PATH_MAX];
   char outputName[PATH_MAX];
@@ -116,6 +118,8 @@ main (int argc, char **argv)
   char msg[PATH_MAX+256];
 
   error = 0;
+  imageListName[0] = '\0';
+  imageName[0] = '\0';
   inputName[0] = '\0';
   maskName[0] = '\0';
   outputName[0] = '\0';
@@ -124,7 +128,25 @@ main (int argc, char **argv)
   nOps = 0;
   ops = NULL;
   for (i = 1; i < argc; ++i)
-    if (strcmp(argv[i], "-input") == 0)
+    if (strcmp(argv[i], "-image_list") == 0)
+      {
+	if (++i == argc)
+	  {
+	    error = 1;
+	    break;
+	  }
+	strcpy(imageListName, argv[i]);
+      }
+    else if (strcmp(argv[i], "-image") == 0)
+      {
+	if (++i == argc)
+	  {
+	    error = 1;
+	    break;
+	  }
+	strcpy(imageName, argv[i]);
+      }
+    else if (strcmp(argv[i], "-input") == 0)
       {
 	if (++i == argc)
 	  {
@@ -442,15 +464,24 @@ main (int argc, char **argv)
 	constraints[nConstraints-1].c = ops[i].p3;
 	break;
 
+	// Rotate at center of image: Nilton@NIPS 2023/11/08
       case ROTATE:
 	if (fmod(ops[i].p0, 90.0) != 0.0)
 	  osf = oversamplingFactor;
-	m[0][0] = cos(ops[i].p0 * M_PI / 180.0);
-	m[0][1] = sin(ops[i].p0 * M_PI / 180.0);
-	m[0][2] = 0.0;
-	m[1][0] = -sin(ops[i].p0 * M_PI / 180.0);
-	m[1][1] = cos(ops[i].p0 * M_PI / 180.0);
-	m[1][2] = 0.0;
+	double alpha = cos(ops[i].p0 * M_PI / 180.0);
+	double beta = sin(ops[i].p0 * M_PI / 180.0);
+	m[0][0] = alpha;
+	m[0][1] = beta;
+	m[0][2] = (1.0-alpha)*(xSize/2.0) - beta*(ySize/2.0);
+	m[1][0] = -beta;
+	m[1][1] = alpha;
+	m[1][2] = beta*(xSize/2.0) + (1.0-alpha)*(ySize/2.0);
+	// m[0][0] = cos(ops[i].p0 * M_PI / 180.0);
+	// m[0][1] = sin(ops[i].p0 * M_PI / 180.0);
+	// m[0][2] = 0.0;
+	// m[1][0] = -sin(ops[i].p0 * M_PI / 180.0);
+	// m[1][1] = cos(ops[i].p0 * M_PI / 180.0);
+	// m[1][2] = 0.0;
 	ApplyTransform(m, t, nConstraints, constraints);
 	break;
 
