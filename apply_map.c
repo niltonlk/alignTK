@@ -283,6 +283,8 @@ main (int argc, char **argv, char **envp)
       }
     else if (strcmp(argv[i], "-pgm") == 0)
       strcpy(extension, "pgm");
+    else if (strcmp(argv[i], "-bmp") == 0)
+      strcpy(extension, "bmp"); // Add bmp extionsion [Nilton]
     else if (strcmp(argv[i], "-masks") == 0)
       {
 	if (++i == argc)

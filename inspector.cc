@@ -375,6 +375,8 @@ main (int argc, char **argv)
       readOnly = true;
     else if (strcmp(argv[i], "-tif") == 0)
       strcpy(extension, "tif");
+    else if (strcmp(argv[i], "-bmp") == 0)
+      strcpy(extension, "bmp");
     else if (strcmp(argv[i], "-partial") == 0)
       partial = true;
     else if (strcmp(argv[i], "-no_gray") == 0)
