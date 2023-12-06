@@ -771,7 +771,7 @@ ReadJpgImage (char *filename, unsigned char **buffer,
   ih = cinfo.output_height;
   b = (unsigned char **) malloc(ih * sizeof(unsigned char *));
   b[0] = (unsigned char *) malloc(iw * ih * sizeof(unsigned char));
-  for (i = 1; i < ih; ++i)
+  for (i = 0; i < ih; ++i)
     b[i] = b[0] + i * iw;
   jpeg_start_decompress(&cinfo);
   if (cinfo.output_components != 1)
@@ -783,7 +783,7 @@ ReadJpgImage (char *filename, unsigned char **buffer,
       return(0);
     }
   while (cinfo.output_scanline < cinfo.output_height)
-    jpeg_read_scanlines(&cinfo, &b[cinfo.output_scanline * iw],
+    jpeg_read_scanlines(&cinfo, &b[cinfo.output_scanline],
 			cinfo.output_height - cinfo.output_scanline);
   jpeg_finish_decompress(&cinfo);
   fclose(f);
